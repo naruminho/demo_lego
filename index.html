@@ -1,13 +1,651 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Bridge - Agentes Workflows</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eorkflows</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }
+        
+        .puzzle-piece-cell {
+            position: absolute;
+            border: 1px solid #9CA3AF;
+        }
+        
+        .dragging {
+            opacity: 0.7;
+        }
+        
+        .selected {
+            box-shadow: 0 0 0 2px #3B82F6, 0 0 0 4px rgba(59, 130, 246, 0.2);
+        }
+        
+        .component-item {
+            cursor: move;
+            transition: background-color 0.2s;
+        }
+        
+        .component-item:hover {
+            background-color: #F9FAFB;
+        }
+        
+        .canvas-grid {
+            background-image: 
+                linear-gradient(to right, #f0f0f0 1px, transparent 1px),
+                linear-gradient(to bottom, #f0f0f0 1px, transparent 1px);
+            background-size: 12px 12px;
+        }
+        
+        .label-box {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(4px);
+            border: 1px solid #E5E7EB;
+            border-radius: 4px;
+            padding: 4px 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .drag-over {
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <!-- Header -->
+    <header class="bg-purple-600 text-white p-4">
+        <h1 class="text-xl font-bold">workflows</h1>
+    </header>
+    
+    <!-- Main content -->
+    <div class="flex-1 flex">
+        <!-- Sidebar -->
+        <div class="w-80 bg-gray-100 border-r overflow-y-auto">
+            <div class="p-4">
+                <h2 class="font-semibold mb-4 text-gray-800">Componentes</h2>
+                <div id="components-list" class="space-y-1">
+                    <!-- Components will be rendered here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Canvas area -->
+        <div class="flex-1 flex flex-col">
+            <div class="p-4 border-b">
+                <p class="text-gray-600">
+                    <strong>Desafio:</strong> construa um workflow de...
+                </p>
+                <p class="text-sm text-gray-500 mt-1">
+                    Arraste peças da barra lateral. As peças ficam onde você soltar e podem se sobrepor nos espaços vazios.
+                </p>
+            </div>
+            
+            <div id="canvas" class="flex-1 bg-white relative overflow-hidden canvas-grid" tabindex="0">
+                <div id="empty-message" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <p class="text-gray-400 text-lg">
+                        Arraste os componentes e monte seu workflow aqui
+                    </p>
+                </div>
+            </div>
+            
+            <div class="p-4 border-t bg-gray-50">
+                <div class="flex gap-2 items-center">
+                    <button id="validate-btn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded">
+                        Validar Workflow
+                    </button>
+                    <button id="clear-btn" class="border border-gray-300 text-gray-600 px-4 py-2 rounded hover:bg-gray-50">
+                        Limpar Canvas
+                    </button>
+                    <span id="selection-status" class="text-sm text-blue-600 ml-2 hidden">
+                        Peça selecionada - pressione Delete para remover
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Component data
+        const componentTypes = [
+            {
+                id: 'user-input',
+                name: 'User Input',
+                color: '#4B5563',
+                inputType: null,
+                outputType: 'text',
+                shape: [
+                    [1,1,1,1,1,1],
+                    [1,1,1,1,1,1],
+                    [0,0,1,1,0,0],
+                    [0,0,1,1,0,0]
+                ]
+            },
+            {
+                id: 'ms-office',
+                name: 'MS-Office, PDFs',
+                color: '#4B5563',
+                inputType: null,
+                outputType: 'document',
+                shape: [
+                    [1,1,1,1,1,1],
+                    [1,1,1,1,1,1],
+                    [1,1,0,0,0,0],
+                    [1,1,0,0,0,0]
+                ]
+            },
+            {
+                id: 'ligacoes',
+                name: 'Ligações, MP3',
+                color: '#4B5563',
+                inputType: null,
+                outputType: 'audio',
+                shape: [
+                    [1,1,1,1,1,1],
+                    [1,1,1,1,1,1],
+                    [0,0,0,0,1,1],
+                    [0,0,0,0,1,1]
+                ]
+            },
+            {
+                id: 'ocr',
+                name: 'OCR',
+                color: '#8B5CF6',
+                inputType: 'document',
+                outputType: 'text',
+                shape: [
+                    [0,0,1,1,1,1],
+                    [0,0,1,1,1,1],
+                    [1,1,1,1,1,1],
+                    [0,0,1,1,0,0],
+                    [0,0,1,1,0,0]
+                ]
+            },
+            {
+                id: 'tts',
+                name: 'TTS - texto para fala',
+                color: '#06B6D4',
+                inputType: 'text',
+                outputType: 'audio',
+                shape: [
+                    [1,1,0,0,1,1],
+                    [1,1,0,0,1,1],
+                    [1,1,1,1,1,1],
+                    [0,0,0,0,1,1],
+                    [0,0,0,0,1,1]
+                ]
+            },
+            {
+                id: 'stt',
+                name: 'STT - Fala para texto',
+                color: '#EAB308',
+                inputType: 'audio',
+                outputType: 'text',
+                shape: [
+                    [1,1,1,1,0,0],
+                    [1,1,1,1,0,0],
+                    [1,1,1,1,1,1],
+                    [0,0,1,1,0,0],
+                    [0,0,1,1,0,0]
+                ]
+            },
+            {
+                id: 'gerador-texto',
+                name: 'gerador de texto',
+                color: '#16A34A',
+                inputType: 'text',
+                outputType: 'text',
+                shape: [
+                    [1,1,0,0,1,1],
+                    [1,1,0,0,1,1],
+                    [1,1,1,1,1,1],
+                    [1,1,1,1,1,1],
+                    [0,0,1,1,0,0],
+                    [0,0,1,1,0,0]
+                ]
+            },
+            {
+                id: 'rag',
+                name: 'RAG - Busca bases',
+                color: '#2563EB',
+                inputType: 'text',
+                outputType: 'text',
+                shape: [
+                    [1,1,0,0,1,1],
+                    [1,1,0,0,1,1],
+                    [1,1,1,1,1,1],
+                    [1,1,1,1,1,1],
+                    [0,0,1,1,0,0],
+                    [0,0,1,1,0,0]
+                ]
+            }
+        ];
+
+        // Global state
+        let droppedComponents = [];
+        let selectedPiece = null;
+        let currentDragData = null;
+
+        // Constants
+        const CELL_SIZE = 12;
+        const GRID_SIZE = 12;
+
+        // Utility functions
+        function createPuzzlePiece(component, options = {}) {
+            const { isDragging = false, isSelected = false } = options;
+            
+            const container = document.createElement('div');
+            container.className = `relative ${isDragging ? 'opacity-70' : ''} ${isSelected ? 'selected' : ''}`;
+            container.style.width = `${component.shape[0].length * CELL_SIZE}px`;
+            container.style.height = `${component.shape.length * CELL_SIZE}px`;
+            
+            component.shape.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    if (cell === 1) {
+                        const cellDiv = document.createElement('div');
+                        cellDiv.className = 'puzzle-piece-cell';
+                        cellDiv.style.backgroundColor = component.color;
+                        cellDiv.style.left = `${colIndex * CELL_SIZE}px`;
+                        cellDiv.style.top = `${rowIndex * CELL_SIZE}px`;
+                        cellDiv.style.width = `${CELL_SIZE}px`;
+                        cellDiv.style.height = `${CELL_SIZE}px`;
+                        if (isSelected) {
+                            cellDiv.style.borderColor = '#3B82F6';
+                        }
+                        container.appendChild(cellDiv);
+                    }
+                });
+            });
+            
+            return container;
+        }
+
+        function canPiecesInterlock(piece1, pos1, piece2, pos2) {
+            const grid1X = Math.round(pos1.x / CELL_SIZE);
+            const grid1Y = Math.round(pos1.y / CELL_SIZE);
+            const grid2X = Math.round(pos2.x / CELL_SIZE);
+            const grid2Y = Math.round(pos2.y / CELL_SIZE);
+            
+            for (let row1 = 0; row1 < piece1.shape.length; row1++) {
+                for (let col1 = 0; col1 < piece1.shape[row1].length; col1++) {
+                    const globalRow = grid1Y + row1;
+                    const globalCol = grid1X + col1;
+                    
+                    for (let row2 = 0; row2 < piece2.shape.length; row2++) {
+                        for (let col2 = 0; col2 < piece2.shape[row2].length; col2++) {
+                            const piece2GlobalRow = grid2Y + row2;
+                            const piece2GlobalCol = grid2X + col2;
+                            
+                            if (globalRow === piece2GlobalRow && globalCol === piece2GlobalCol) {
+                                const piece1Cell = piece1.shape[row1][col1];
+                                const piece2Cell = piece2.shape[row2][col2];
+                                
+                                if (piece1Cell === 1 && piece2Cell === 1) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return true;
+        }
+
+        function getDropPosition(movingPiece, dropPos, existingPieces) {
+            const snappedX = Math.round(dropPos.x / GRID_SIZE) * GRID_SIZE;
+            const snappedY = Math.round(dropPos.y / GRID_SIZE) * GRID_SIZE;
+            
+            const testPos = { x: snappedX, y: snappedY };
+            
+            for (const existingPiece of existingPieces) {
+                if (!canPiecesInterlock(movingPiece, testPos, existingPiece, existingPiece)) {
+                    const nearbyPositions = [
+                        { x: snappedX + GRID_SIZE, y: snappedY },
+                        { x: snappedX - GRID_SIZE, y: snappedY },
+                        { x: snappedX, y: snappedY + GRID_SIZE },
+                        { x: snappedX, y: snappedY - GRID_SIZE },
+                        { x: snappedX + GRID_SIZE, y: snappedY + GRID_SIZE },
+                        { x: snappedX - GRID_SIZE, y: snappedY - GRID_SIZE }
+                    ];
+                    
+                    for (const nearbyPos of nearbyPositions) {
+                        let canPlaceHere = true;
+                        for (const piece of existingPieces) {
+                            if (!canPiecesInterlock(movingPiece, nearbyPos, piece, piece)) {
+                                canPlaceHere = false;
+                                break;
+                            }
+                        }
+                        if (canPlaceHere) {
+                            return nearbyPos;
+                        }
+                    }
+                }
+            }
+            
+            return testPos;
+        }
+
+        function renderSidebarComponents() {
+            const componentsList = document.getElementById('components-list');
+            componentsList.innerHTML = '';
+            
+            componentTypes.forEach(component => {
+                const item = document.createElement('div');
+                item.className = 'mb-3 flex items-center gap-3 p-2 rounded-lg component-item';
+                item.draggable = true;
+                
+                const pieceContainer = document.createElement('div');
+                pieceContainer.className = 'flex-shrink-0';
+                pieceContainer.appendChild(createPuzzlePiece(component));
+                
+                const label = document.createElement('div');
+                label.className = 'flex-1 min-w-0';
+                label.innerHTML = `<p class="text-sm font-medium text-gray-800 leading-tight">${component.name}</p>`;
+                
+                item.appendChild(pieceContainer);
+                item.appendChild(label);
+                
+                // Drag events
+                item.addEventListener('dragstart', (e) => {
+                    console.log('Drag started for:', component.name);
+                    currentDragData = component;
+                    item.classList.add('dragging');
+                    
+                    // Set drag data
+                    e.dataTransfer.setData('text/plain', JSON.stringify(component));
+                    e.dataTransfer.effectAllowed = 'copy';
+                    
+                    // Create custom drag image
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = component.shape[0].length * CELL_SIZE;
+                    canvas.height = component.shape.length * CELL_SIZE;
+                    
+                    component.shape.forEach((row, rowIndex) => {
+                        row.forEach((cell, colIndex) => {
+                            if (cell === 1) {
+                                ctx.fillStyle = component.color;
+                                ctx.fillRect(colIndex * CELL_SIZE, rowIndex * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                                ctx.strokeStyle = '#9CA3AF';
+                                ctx.strokeRect(colIndex * CELL_SIZE, rowIndex * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                            }
+                        });
+                    });
+                    
+                    e.dataTransfer.setDragImage(canvas, canvas.width / 2, canvas.height / 2);
+                });
+                
+                item.addEventListener('dragend', (e) => {
+                    console.log('Drag ended for:', component.name);
+                    item.classList.remove('dragging');
+                    currentDragData = null;
+                });
+                
+                componentsList.appendChild(item);
+            });
+        }
+
+        function renderCanvasComponents() {
+            const canvas = document.getElementById('canvas');
+            const emptyMessage = document.getElementById('empty-message');
+            
+            // Clear existing components
+            const existingComponents = canvas.querySelectorAll('.canvas-component');
+            existingComponents.forEach(comp => comp.remove());
+            
+            if (droppedComponents.length === 0) {
+                emptyMessage.style.display = 'flex';
+            } else {
+                emptyMessage.style.display = 'none';
+                
+                droppedComponents.forEach(component => {
+                    const container = document.createElement('div');
+                    container.className = 'absolute cursor-move canvas-component flex items-center gap-2';
+                    container.style.left = `${component.x}px`;
+                    container.style.top = `${component.y}px`;
+                    container.style.zIndex = selectedPiece === component.id ? '10' : '1';
+                    
+                    const piece = createPuzzlePiece(component, { 
+                        isSelected: selectedPiece === component.id 
+                    });
+                    
+                    const label = document.createElement('div');
+                    label.className = 'label-box';
+                    label.innerHTML = `<p class="text-xs font-medium text-gray-700 whitespace-nowrap">${component.name}</p>`;
+                    
+                    container.appendChild(piece);
+                    container.appendChild(label);
+                    
+                    // Mouse events for selection and dragging
+                    let isDragging = false;
+                    let dragOffset = { x: 0, y: 0 };
+                    
+                    container.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        selectPiece(component.id);
+                        
+                        const rect = canvas.getBoundingClientRect();
+                        dragOffset.x = e.clientX - rect.left - component.x;
+                        dragOffset.y = e.clientY - rect.top - component.y;
+                        
+                        isDragging = true;
+                        
+                        const handleMouseMove = (e) => {
+                            if (!isDragging) return;
+                            
+                            const rect = canvas.getBoundingClientRect();
+                            const newX = e.clientX - rect.left - dragOffset.x;
+                            const newY = e.clientY - rect.top - dragOffset.y;
+                            
+                            const otherPieces = droppedComponents.filter(p => p.id !== component.id);
+                            const finalPos = getDropPosition(component, { x: newX, y: newY }, otherPieces);
+                            
+                            updateComponentPosition(component.id, finalPos.x, finalPos.y);
+                        };
+                        
+                        const handleMouseUp = () => {
+                            isDragging = false;
+                            document.removeEventListener('mousemove', handleMouseMove);
+                            document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                    });
+                    
+                    canvas.appendChild(container);
+                });
+            }
+        }
+
+        function selectPiece(pieceId) {
+            selectedPiece = pieceId;
+            updateSelectionStatus();
+            renderCanvasComponents();
+        }
+
+        function updateSelectionStatus() {
+            const status = document.getElementById('selection-status');
+            if (selectedPiece) {
+                status.classList.remove('hidden');
+            } else {
+                status.classList.add('hidden');
+            }
+        }
+
+        function updateComponentPosition(componentId, newX, newY) {
+            const component = droppedComponents.find(c => c.id === componentId);
+            if (component) {
+                component.x = newX;
+                component.y = newY;
+                renderCanvasComponents();
+            }
+        }
+
+        function addComponentToCanvas(component, x, y) {
+            const finalPos = getDropPosition(component, { x, y }, droppedComponents);
+            
+            const newComponent = {
+                ...component,
+                id: `${component.id}-${Date.now()}`,
+                x: finalPos.x,
+                y: finalPos.y
+            };
+            
+            droppedComponents.push(newComponent);
+            renderCanvasComponents();
+        }
+
+        function removeComponent(componentId) {
+            if (componentId === 'all') {
+                droppedComponents = [];
+                selectedPiece = null;
+            } else {
+                droppedComponents = droppedComponents.filter(c => c.id !== componentId);
+                if (selectedPiece === componentId) {
+                    selectedPiece = null;
+                }
+            }
+            updateSelectionStatus();
+            renderCanvasComponents();
+        }
+
+        function validateWorkflow() {
+            if (droppedComponents.length === 0) {
+                alert('Adicione pelo menos um componente ao workflow!');
+                return;
+            }
+            
+            const hasInput = droppedComponents.some(c => c.inputType === null);
+            let interlockCount = 0;
+            
+            for (let i = 0; i < droppedComponents.length; i++) {
+                for (let j = i + 1; j < droppedComponents.length; j++) {
+                    const distance = Math.sqrt(
+                        Math.pow(droppedComponents[i].x - droppedComponents[j].x, 2) + 
+                        Math.pow(droppedComponents[i].y - droppedComponents[j].y, 2)
+                    );
+                    
+                    if (distance < 50) {
+                        const canInterlock = canPiecesInterlock(
+                            droppedComponents[i], droppedComponents[i], 
+                            droppedComponents[j], droppedComponents[j]
+                        );
+                        if (canInterlock) {
+                            interlockCount++;
+                        }
+                    }
+                }
+            }
+            
+            if (!hasInput) {
+                alert('⚠️ Adicione pelo menos um componente de entrada (User Input, MS-Office, ou Ligações)');
+                return;
+            }
+            
+            if (droppedComponents.length === 1) {
+                alert('✅ Componente adicionado! Adicione mais componentes para criar um workflow completo.');
+            } else if (interlockCount > 0) {
+                alert(`✅ Workflow válido! Você criou ${interlockCount} encaixe(s) real(is) entre as peças.`);
+            } else {
+                alert('⚠️ As peças não estão encaixadas. Tente sobrepor peças nos espaços vazios (zeros).');
+            }
+        }
+
+        // Event listeners
+        function setupEventListeners() {
+            const canvas = document.getElementById('canvas');
+            const validateBtn = document.getElementById('validate-btn');
+            const clearBtn = document.getElementById('clear-btn');
+            
+            // Canvas drag and drop
+            canvas.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                canvas.classList.add('drag-over');
+            });
+            
+            canvas.addEventListener('dragleave', (e) => {
+                canvas.classList.remove('drag-over');
+            });
+            
+            canvas.addEventListener('drop', (e) => {
+                e.preventDefault();
+                canvas.classList.remove('drag-over');
+                
+                console.log('Drop event triggered');
+                
+                let componentData = null;
+                
+                // Try to get data from dataTransfer
+                try {
+                    const transferData = e.dataTransfer.getData('text/plain');
+                    if (transferData) {
+                        componentData = JSON.parse(transferData);
+                    }
+                } catch (err) {
+                    console.log('Error parsing transfer data:', err);
+                }
+                
+                // Fallback to currentDragData
+                if (!componentData && currentDragData) {
+                    componentData = currentDragData;
+                }
+                
+                if (componentData) {
+                    const rect = canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    
+                    console.log('Adding component:', componentData.name, 'at position:', x, y);
+                    addComponentToCanvas(componentData, x, y);
+                } else {
+                    console.log('No component data found');
+                }
+            });
+            
+            // Canvas click to deselect
+            canvas.addEventListener('click', (e) => {
+                if (e.target === canvas) {
+                    selectedPiece = null;
+                    updateSelectionStatus();
+                    renderCanvasComponents();
+                }
+            });
+            
+            // Keyboard events
+            document.addEventListener('keydown', (e) => {
+                if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPiece) {
+                    e.preventDefault();
+                    removeComponent(selectedPiece);
+                }
+            });
+            
+            // Button events
+            validateBtn.addEventListener('click', validateWorkflow);
+            clearBtn.addEventListener('click', () => removeComponent('all'));
+            
+            // Focus canvas for keyboard events
+            canvas.focus();
+        }
+
+        // Initialize application
+        function init() {
+            console.log('Initializing workflow builder...');
+            renderSidebarComponents();
+            renderCanvasComponents();
+            setupEventListeners();
+            console.log('Workflow builder initialized!');
+        }
+
+        // Start the application
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
 </html>
+
